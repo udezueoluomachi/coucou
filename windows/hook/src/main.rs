@@ -240,7 +240,7 @@ fn read_event() -> Option<(String, String, bool)> {
 
     let mut line = payload.to_string();
     line.push('\n');
-    Some((line, event))
+    Some((line, event, is_antigravity))
 }
 
 /// Caps every string in the payload. A single Write can carry a whole file.
