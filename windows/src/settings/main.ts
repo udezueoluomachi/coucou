@@ -297,13 +297,97 @@ function antigravitySection(status: HookStatus): HTMLElement {
   return section;
 }
 
-// ── Claude API section ────────────────────────────────────────────────────────
+// ── AI Model & API sections ──────────────────────────────────────────────────
 
 const MODELS: [string, string][] = [
-  ["claude-opus-5", "Claude Opus 5"],
-  ["claude-sonnet-5", "Claude Sonnet 5"],
-  ["claude-haiku-4-5", "Claude Haiku 4.5"],
+  ["gemini-2.5-flash", "Gemini 2.5 Flash (Google)"],
+  ["gemini-2.5-pro", "Gemini 2.5 Pro (Google)"],
+  ["gemini-2.0-flash", "Gemini 2.0 Flash (Google)"],
+  ["claude-opus-5", "Claude Opus 5 (Anthropic)"],
+  ["claude-sonnet-5", "Claude Sonnet 5 (Anthropic)"],
+  ["claude-haiku-4-5", "Claude Haiku 4.5 (Anthropic)"],
 ];
+
+function geminiSection(hasKey: boolean): HTMLElement {
+  const dot = statusDot(hasKey);
+  const state = h("span", {
+    class: "hint",
+    text: hasKey
+      ? "Key saved in Windows Credential Manager."
+      : "Free keys available via Google AI Studio.",
+  });
+
+  const field = h("input", {
+    type: "password",
+    placeholder: hasKey ? "••••••••••••  (stored)" : "AIzaSy...",
+    style: "flex:1 1 auto;min-width:0",
+    autocomplete: "off",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+
+  const saveBtn = h("button", { class: "primary", text: "Save key" });
+  const clearBtn = h("button", { class: "danger", text: "Remove" });
+  const feedback = h("div", {});
+
+  async function refresh() {
+    const present = (await Bridge.secretPresent("gemini-api-key")) ?? false;
+    dot.style.background = present ? "#22c55e" : "#f4505e";
+    state.textContent = present
+      ? "Key saved in Windows Credential Manager."
+      : "Free keys available via Google AI Studio.";
+    field.placeholder = present ? "••••••••••••  (stored)" : "AIzaSy...";
+    clearBtn.style.display = present ? "" : "none";
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    const value = field.value.trim();
+    if (!value) return;
+    clear(feedback);
+    try {
+      await Bridge.secretSet("gemini-api-key", value);
+      field.value = "";
+      feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
+      await refresh();
+    } catch (err) {
+      feedback.append(h("div", { class: "notice err", text: `Could not save: ${String(err)}` }));
+    }
+  });
+
+  clearBtn.addEventListener("click", async () => {
+    clear(feedback);
+    try {
+      await Bridge.secretClear("gemini-api-key");
+      feedback.append(h("div", { class: "notice ok", text: "Key removed." }));
+      await refresh();
+    } catch (err) {
+      feedback.append(h("div", { class: "notice err", text: `Could not remove: ${String(err)}` }));
+    }
+  });
+
+  clearBtn.style.display = hasKey ? "" : "none";
+
+  const aiStudioLink = h("a", {
+    href: "https://aistudio.google.com/app/apikey",
+    target: "_blank",
+    class: "link-subtle",
+    text: "Get a free Gemini API key at Google AI Studio ↗",
+    style: "font-size:12px;color:rgba(255,255,255,0.6);text-decoration:none",
+  });
+  aiStudioLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    void Bridge.openUrl("https://aistudio.google.com/app/apikey");
+  });
+
+  return h(
+    "section",
+    {},
+    h("h2", {}, dot, h("span", { text: "Google Gemini" })),
+    state,
+    h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
+    h("div", { class: "row", style: "margin-top:-4px" }, aiStudioLink),
+    feedback,
+  );
+}
 
 function apiSection(hasKey: boolean): HTMLElement {
   const dot = statusDot(hasKey);
@@ -372,10 +456,10 @@ function apiSection(hasKey: boolean): HTMLElement {
   return h(
     "section",
     {},
-    h("h2", {}, dot, h("span", { text: "Claude" })),
+    h("h2", {}, dot, h("span", { text: "Anthropic Claude" })),
     state,
     h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: "Model" }), model),
+    h("div", { class: "row" }, h("label", { text: "Chat Model" }), model),
     feedback,
   );
 }
@@ -559,6 +643,7 @@ async function main() {
   };
 
   const hasKey = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
+  const hasGeminiKey = (await Bridge.secretPresent("gemini-api-key")) ?? false;
 
   const keys = [
     "stripe-api-key", "github-token", "vercel-token",
@@ -572,6 +657,7 @@ async function main() {
     h("h1", {}, h("span", { text: "Coucou" }), h("span", { class: "version", text: version })),
     claudeSection(status),
     antigravitySection(agyStatus),
+    geminiSection(hasGeminiKey),
     apiSection(hasKey),
     integrationsSection(present),
     generalSection(),

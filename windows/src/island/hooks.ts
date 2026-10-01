@@ -24,6 +24,7 @@ interface HookPayload {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   source?: string;
+  terminal_pids?: number[];
 }
 
 const PROJECT_ALIASES: Record<string, string> = {
@@ -142,13 +143,16 @@ function approvalTarget(tool: string, input: Record<string, unknown>): string {
   return tool;
 }
 
-function upsert(projectName: string, cwd: string, source?: string) {
+function upsert(projectName: string, cwd: string, source?: string, terminalPids?: number[]) {
   const t = State.tasks.find((x) => x.id === CLAUDE_ID);
   if (!t) return;
   t.name = projectName;
   if (cwd) t.sessionCwd = cwd;
   if (source === "antigravity") {
     t.source = "antigravity";
+  }
+  if (terminalPids && terminalPids.length > 0) {
+    t.terminalPids = terminalPids;
   }
 }
 
@@ -193,13 +197,13 @@ function handleHook(island: Island, payload: HookPayload) {
 
   switch (name) {
     case "SessionStart":
-      upsert(projectName, cwd, payload.source);
+      upsert(projectName, cwd, payload.source, payload.terminal_pids);
       surface("overview", false);
       Sound.play("work");
       break;
 
     case "UserPromptSubmit": {
-      upsert(projectName, cwd, payload.source);
+      upsert(projectName, cwd, payload.source, payload.terminal_pids);
       State.updateTask(CLAUDE_ID, "thinking");
       // The field is `prompt`; reading `message` meant this step was always blank.
       const asked = payload.prompt ?? payload.message;
@@ -209,7 +213,7 @@ function handleHook(island: Island, payload: HookPayload) {
     }
 
     case "PreToolUse": {
-      upsert(projectName, cwd, payload.source);
+      upsert(projectName, cwd, payload.source, payload.terminal_pids);
       State.updateTask(CLAUDE_ID, "working");
       const tool = payload.tool_name ?? "Tool";
       State.appendStep(CLAUDE_ID, stepLabel(tool, payload.tool_input ?? {}));

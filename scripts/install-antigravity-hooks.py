@@ -46,21 +46,12 @@ def build_coucou_hooks(cmd_prefix):
         ],
         "PreToolUse": [
             {
-                "matcher": "run_command",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"{cmd_prefix} PermissionRequest",
-                        "timeout": 120
-                    }
-                ]
-            },
-            {
                 "matcher": "*",
                 "hooks": [
                     {
                         "type": "command",
-                        "command": f"{cmd_prefix} PreToolUse"
+                        "command": f"{cmd_prefix} PreToolUse",
+                        "timeout": 120
                     }
                 ]
             }

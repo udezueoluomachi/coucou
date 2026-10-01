@@ -2,6 +2,7 @@
 
 mod claude;
 mod files;
+mod gemini;
 mod hooks;
 mod integrations;
 mod island;
@@ -21,7 +22,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 
-use claude::{Chat, ChatContext, ChatReply};
+use claude::{Chat as ClaudeChat, ChatContext, ChatReply};
+use gemini::Chat as GeminiChat;
 use files::DroppedFile;
 use hooks::{HookPreview, HookStatus};
 use island::{PollGate, ScreenInfo};
@@ -132,27 +134,87 @@ fn open_url(url: String) {
         .spawn();
 }
 
-/// "Open terminal" opens the working folder in VS Code when `code` is on PATH,
-/// and falls back to Explorer otherwise.
+/// Brings the terminal or application running the CLI to the foreground.
+/// If not found, falls back to opening Windows Terminal or PowerShell in `path`.
 #[tauri::command]
-fn open_in_vscode(path: Option<String>) -> bool {
-    // No `cmd /C` anywhere near this. The path is a project folder chosen by
-    // whoever is using Claude Code, and cmd would happily read `&`, `^` and `%`
-    // in a folder name as syntax. Finding the launcher ourselves and handing the
-    // path over as a separate argument keeps it a path.
-    if let Some(code) = find_on_path("code") {
-        let mut cmd = Command::new(code);
+fn open_terminal(pids: Option<Vec<u32>>, path: Option<String>) -> bool {
+    let pids = pids.unwrap_or_default();
+    if !pids.is_empty() && activate_process_window(&pids) {
+        return true;
+    }
+
+    if let Some(wt) = find_on_path("wt") {
+        let mut cmd = Command::new(wt);
         if let Some(p) = path.as_deref().filter(|p| !p.is_empty()) {
-            cmd.arg(p);
+            cmd.args(["-d", p]);
         }
-        if cmd.creation_flags(CREATE_NO_WINDOW).spawn().is_ok() {
+        if cmd.spawn().is_ok() {
             return true;
         }
     }
+
+    if let Some(p) = path.as_deref().filter(|p| !p.is_empty()) {
+        if Command::new("powershell")
+            .args(["-NoExit", "-Command", &format!("Set-Location -LiteralPath '{}'", p)])
+            .spawn()
+            .is_ok()
+        {
+            return true;
+        }
+    } else if Command::new("powershell").spawn().is_ok() {
+        return true;
+    }
+
     if let Some(p) = path.as_deref().filter(|p| !p.is_empty()) {
         let _ = Command::new("explorer").arg(p).spawn();
     }
     false
+}
+
+fn activate_process_window(pids: &[u32]) -> bool {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::*;
+
+    struct SearchCtx<'a> {
+        pids: &'a [u32],
+        found: Option<HWND>,
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut SearchCtx);
+        if !IsWindowVisible(hwnd).as_bool() {
+            return BOOL(1);
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if ctx.pids.contains(&pid) {
+            ctx.found = Some(hwnd);
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+
+    let mut ctx = SearchCtx { pids, found: None };
+    unsafe {
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+        if let Some(hwnd) = ctx.found {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            return true;
+        }
+    }
+    false
+}
+
+#[tauri::command]
+fn open_in_vscode(path: Option<String>) -> bool {
+    open_terminal(None, path)
 }
 
 /// Our own `where`: walks %PATH% against %PATHEXT%, no shell involved.
@@ -265,17 +327,30 @@ fn approval_decline(app: AppHandle, request_id: String) {
 #[tauri::command]
 async fn chat_send(
     shared: State<'_, Shared>,
-    chat: State<'_, Chat>,
+    claude_chat: State<'_, ClaudeChat>,
+    gemini_chat: State<'_, GeminiChat>,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
     let model = shared.settings.lock().unwrap().model.clone();
-    claude::send(&chat, &model, query, context).await
+    if model.starts_with("gemini-") {
+        let gem_context = context.map(|c| match c {
+            ChatContext::File { name, path } => gemini::ChatContext::File { name, path },
+            ChatContext::Window { app_name, title, url } => {
+                gemini::ChatContext::Window { app_name, title, url }
+            }
+        });
+        let reply = gemini::send(&gemini_chat, &model, query, gem_context).await?;
+        Ok(ChatReply { text: reply.text })
+    } else {
+        claude::send(&claude_chat, &model, query, context).await
+    }
 }
 
 #[tauri::command]
-fn chat_reset(chat: State<Chat>) {
-    chat.reset();
+fn chat_reset(claude_chat: State<'_, ClaudeChat>, gemini_chat: State<'_, GeminiChat>) {
+    claude_chat.reset();
+    gemini_chat.reset();
 }
 
 /// Copies a dropped file into the inbox and reports its name back.
@@ -400,7 +475,8 @@ pub fn run() {
             gate: gate.clone(),
         })
         .manage(Pending::default())
-        .manage(Chat::default())
+        .manage(ClaudeChat::default())
+        .manage(GeminiChat::default())
         .invoke_handler(tauri::generate_handler![
             boot,
             save_settings,
@@ -409,6 +485,7 @@ pub fn run() {
             focus_window,
             reposition,
             open_url,
+            open_terminal,
             open_in_vscode,
             quit_app,
             hooks_status,

@@ -50,6 +50,9 @@ export const Bridge = {
 
   openUrl: (url: string) => call<void>("open_url", { url }),
 
+  /** "Open terminal" → activates running terminal window, or opens Windows Terminal/PowerShell. */
+  openTerminal: (pids: number[], path: string | null) => call<boolean>("open_terminal", { pids, path }),
+
   /** "Open terminal" → opens the folder in VS Code when `code` is on PATH. */
   openInVSCode: (path: string | null) => call<boolean>("open_in_vscode", { path }),
 
