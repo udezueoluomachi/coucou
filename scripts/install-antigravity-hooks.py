@@ -32,7 +32,9 @@ def get_hook_command_prefix():
     # Fallback to python relay script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     relay_script = os.path.join(script_dir, "coucou-antigravity-hook.py").replace("\\", "/")
-    return f'python "{relay_script}"'
+    if " " in relay_script:
+        return f'python "{relay_script}"'
+    return f"python {relay_script}"
 
 def build_coucou_hooks(cmd_prefix):
     return {

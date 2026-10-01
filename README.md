@@ -4,7 +4,7 @@
 
 # Coucou
 
-**A tiny friend that lives in your Mac's notch — or at the top of your screen on Windows — and keeps an eye on your Claude Code sessions.**
+**A tiny friend that lives in your Mac's notch — or at the top of your screen on Windows — and keeps an eye on your Claude Code & Antigravity CLI sessions.**
 
 Approve permissions, watch your agents work, drop a file, chat with Claude — all without leaving what you're doing.
 
@@ -101,10 +101,11 @@ Click the Coucou icon in the menu bar (macOS) or in the system tray (Windows) �
 | What | Why | Where the key goes |
 |---|---|---|
 | **Claude Code hooks** | live sessions and approvals | **Install hooks** — Coucou backs up `~/.claude/settings.json`, merges its hooks and shows you the diff before writing anything |
+| **Antigravity CLI hooks** | live sessions and approvals | **Install hooks** — Coucou backs up `~/.gemini/config/hooks.json`, merges its hooks and shows you the diff before writing anything |
 | **Anthropic API key** | chat and questions about files | Keychain / Windows Credential Manager |
 | Stripe, n8n, GitHub, Vercel, Resend, Notion, Cal.com | the integration pills | Keychain / Windows Credential Manager, all optional |
 
-If Coucou isn't running, the hook exits immediately: **Claude Code is never blocked.**
+If Coucou isn't running, the hook exits immediately: **your coding agent is never blocked.**
 
 ## Things to try
 

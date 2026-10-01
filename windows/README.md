@@ -68,6 +68,21 @@ in time, Coucou stays quiet and Claude Code asks in the terminal as usual.
 
 It works from any terminal — Windows Terminal, PowerShell, VS Code, Git Bash.
 
+## Antigravity CLI
+
+Open **Settings… → Antigravity CLI → Install hooks…**. You get the exact diff of what
+will change in `%USERPROFILE%\.gemini\config\hooks.json`, the path of the dated backup
+that will be taken, and nothing is written until you click. Your other hooks are
+never touched, and uninstalling removes only Coucou's entries.
+
+`coucou-hook.exe` handles Antigravity lifecycle events over the same named pipe and
+exits cleanly if the app is closed — **an Antigravity session is never blocked or
+slowed down by Coucou.** If nobody answers an approval request in time, Antigravity asks
+in the terminal as usual.
+
+Tool calls (`run_command`, `view_file`, `replace_file_content`, etc.), thinking states,
+and subagents appear live in the island.
+
 ## Chat and keys
 
 **Settings… → Claude** takes your Anthropic API key. Keys live in the **Windows
