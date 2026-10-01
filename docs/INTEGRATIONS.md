@@ -156,3 +156,14 @@ Permissions : Enregistrement de l'écran (capture) et Automatisation (navigateur
 | Micro + Reconnaissance vocale (optionnel) | dictée | premier clic sur le micro |
 
 Aucune permission Accessibilité nécessaire.
+
+---
+
+## 8. Antigravity CLI (`agy`)
+
+Coucou supporte également **Google Antigravity CLI** via ses hooks de cycle de vie (`hooks.json` dans `~/.gemini/config/hooks.json` ou `.agents/hooks.json`) :
+
+- **Événements supportés** : `PreInvocation` (pensée), `PreToolUse` (actions d'outils et approbations), `PostToolUse` (fin d'outil), `Stop` (session terminée).
+- **Outils Antigravity mappés** : `run_command` (Exécute), `view_file` (Lit), `replace_file_content` / `write_to_file` (Modifie / Écrit), `grep_search` / `find_by_name` (Recherche / Cherche), `search_web` (Recherche web), `call_mcp_tool` (MCP), etc.
+- **Relais** : `coucou-hook.exe` (Windows) ou `scripts/coucou-antigravity-hook.py` (multiplateforme).
+- **Installation** : Via les réglages de Coucou (bouton « Installer les hooks » sous Antigravity CLI) ou le script `scripts/install-antigravity-hooks.py`.

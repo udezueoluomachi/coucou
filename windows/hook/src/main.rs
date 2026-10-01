@@ -72,7 +72,7 @@ fn connect() -> Option<std::fs::File> {
 }
 
 fn main() {
-    let Some((payload, event)) = read_event() else { std::process::exit(0) };
+    let Some((payload, event, is_antigravity)) = read_event() else { std::process::exit(0) };
 
     let waits_for_answer = event == "PermissionRequest";
     let budget = if waits_for_answer { DECISION_BUDGET } else { FIRE_AND_FORGET_BUDGET };
@@ -87,34 +87,41 @@ fn main() {
     });
 
     if let Ok(Some(decision)) = rx.recv_timeout(budget) {
-        if let Some(json) = decision_json(&decision) {
+        if let Some(json) = decision_json(&decision, is_antigravity) {
             let mut out = std::io::stdout();
             let _ = writeln!(out, "{json}");
             let _ = out.flush();
         }
     }
-    // Nothing printed: Claude Code asks in the terminal, as if we were not here.
+    // Nothing printed: asks in the terminal, as if we were not here.
     std::process::exit(0);
 }
 
-/// The documented PermissionRequest output. Anything we do not recognise prints
-/// nothing at all rather than guessing — silence is the safe answer.
-/// See https://code.claude.com/docs/en/hooks
-fn decision_json(decision: &str) -> Option<String> {
-    let behavior = match decision.trim() {
-        // "always" still answers a plain allow; remembering it is the island's
-        // business, not Claude Code's.
-        "allow" | "always" => r#"{"behavior":"allow"}"#.to_string(),
-        "deny" => r#"{"behavior":"deny","message":"Denied from Coucou"}"#.to_string(),
-        _ => return None,
-    };
-    Some(format!(
-        r#"{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{behavior}}}}}"#
-    ))
+/// The documented PermissionRequest output for Claude Code or Antigravity CLI.
+/// Anything we do not recognise prints nothing at all rather than guessing.
+fn decision_json(decision: &str, is_antigravity: bool) -> Option<String> {
+    if is_antigravity {
+        match decision.trim() {
+            "allow" | "always" => Some(r#"{"decision":"allow"}"#.to_string()),
+            "deny" => Some(r#"{"decision":"deny","reason":"Denied from Coucou"}"#.to_string()),
+            _ => None,
+        }
+    } else {
+        let behavior = match decision.trim() {
+            // "always" still answers a plain allow; remembering it is the island's
+            // business, not Claude Code's.
+            "allow" | "always" => r#"{"behavior":"allow"}"#.to_string(),
+            "deny" => r#"{"behavior":"deny","message":"Denied from Coucou"}"#.to_string(),
+            _ => return None,
+        };
+        Some(format!(
+            r#"{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{behavior}}}}}"#
+        ))
+    }
 }
 
-/// Reads stdin and returns the payload to forward plus the event name.
-fn read_event() -> Option<(String, String)> {
+/// Reads stdin and returns the payload to forward plus the event name and whether it's Antigravity CLI.
+fn read_event() -> Option<(String, String, bool)> {
     let mut raw = Vec::new();
     if std::io::stdin().read_to_end(&mut raw).is_err() || raw.is_empty() {
         return None;
@@ -127,15 +134,73 @@ fn read_event() -> Option<(String, String)> {
     let mut payload = serde_json::from_slice::<serde_json::Value>(&raw).ok()?;
     let map = payload.as_object_mut()?;
 
-    // The event name is passed as argv[1] by the hook command; the JSON usually
-    // carries it too. Trust argv when the JSON is missing it.
-    let arg_event = std::env::args().nth(1).unwrap_or_default();
-    let event = map
-        .get("hook_event_name")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(arg_event);
+    let args: Vec<String> = std::env::args().collect();
+    let arg_event = args.get(1).cloned().unwrap_or_default();
+    let has_ask_flag = args.iter().any(|a| a == "--ask" || a == "--approve");
+
+    // Detect Antigravity CLI payload:
+    // Antigravity passes camelCase fields: conversationId, toolCall, workspacePaths, transcriptPath, stepIdx
+    let is_antigravity = map.contains_key("conversationId") || map.contains_key("toolCall");
+
+    let event: String;
+    if is_antigravity {
+        map.insert("source".into(), serde_json::Value::String("antigravity".into()));
+
+        // Map session_id from conversationId
+        if let Some(conv_id) = map.get("conversationId").and_then(|v| v.as_str()) {
+            map.insert("session_id".into(), serde_json::Value::String(conv_id.to_string()));
+        }
+
+        // Map cwd from workspacePaths if available
+        if !map.contains_key("cwd") {
+            if let Some(ws) = map
+                .get("workspacePaths")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+            {
+                map.insert("cwd".into(), serde_json::Value::String(ws.to_string()));
+            }
+        }
+
+        // Map toolCall if present
+        if let Some(tool_call) = map.get("toolCall").and_then(|v| v.as_object()).cloned() {
+            if let Some(name) = tool_call.get("name").and_then(|v| v.as_str()) {
+                map.insert("tool_name".into(), serde_json::Value::String(name.to_string()));
+            }
+            if let Some(tool_args) = tool_call.get("args") {
+                map.insert("tool_input".into(), tool_args.clone());
+            }
+        }
+
+        // Map event name
+        if arg_event == "PermissionRequest" || has_ask_flag {
+            event = "PermissionRequest".to_string();
+        } else if arg_event == "PreInvocation" {
+            event = "UserPromptSubmit".to_string();
+        } else if arg_event == "PreToolUse" {
+            event = "PreToolUse".to_string();
+        } else if arg_event == "PostToolUse" {
+            let has_err = map.get("error").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            event = if has_err { "PostToolUseFailure".to_string() } else { "PostToolUse".to_string() };
+        } else if arg_event == "Stop" {
+            let has_err = map.get("error").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            event = if has_err { "StopFailure".to_string() } else { "Stop".to_string() };
+        } else if !arg_event.is_empty() {
+            event = arg_event;
+        } else {
+            event = map.get("hook_event_name").and_then(|v| v.as_str()).unwrap_or("PreToolUse").to_string();
+        }
+    } else {
+        // The event name is passed as argv[1] by the hook command; the JSON usually
+        // carries it too. Trust argv when the JSON is missing it.
+        event = map
+            .get("hook_event_name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(arg_event);
+    }
     map.insert("hook_event_name".into(), serde_json::Value::String(event.clone()));
 
     for field in DROPPED_FIELDS {
@@ -236,23 +301,34 @@ mod tests {
     #[test]
     fn decision_json_matches_the_documented_shape() {
         assert_eq!(
-            decision_json("allow").unwrap(),
+            decision_json("allow", false).unwrap(),
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
         );
         assert_eq!(
-            decision_json("deny").unwrap(),
+            decision_json("deny", false).unwrap(),
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from Coucou"}}}"#
         );
+        assert_eq!(
+            decision_json("allow", true).unwrap(),
+            r#"{"decision":"allow"}"#
+        );
+        assert_eq!(
+            decision_json("deny", true).unwrap(),
+            r#"{"decision":"deny","reason":"Denied from Coucou"}"#
+        );
         // "always" is an island concept; Claude Code just gets an allow.
-        assert!(decision_json("always").unwrap().contains(r#""behavior":"allow""#));
+        assert!(decision_json("always", false).unwrap().contains(r#""behavior":"allow""#));
+        assert!(decision_json("always", true).unwrap().contains(r#""decision":"allow""#));
     }
 
     #[test]
     fn anything_unrecognised_prints_nothing() {
-        assert!(decision_json("").is_none());
-        assert!(decision_json("maybe").is_none());
+        assert!(decision_json("", false).is_none());
+        assert!(decision_json("maybe", false).is_none());
+        assert!(decision_json("", true).is_none());
+        assert!(decision_json("maybe", true).is_none());
         // The shape the app used to send must not be mistaken for a decision.
-        assert!(decision_json(r#"{"permissionDecision":"allow"}"#).is_none());
+        assert!(decision_json(r#"{"permissionDecision":"allow"}"#, false).is_none());
     }
 
     #[test]

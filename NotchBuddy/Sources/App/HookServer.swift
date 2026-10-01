@@ -166,9 +166,11 @@ final class HookServer: @unchecked Sendable {
 
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
+        let source      = payload["source"]       as? String ?? ""
+        let isAntigravity = source == "antigravity" || payload["conversationId"] != nil
         let isVSCode = termProgram.lowercased().contains("vscode") ||
                        bundleId.lowercased().contains("vscode")
-        guard isVSCode else {
+        guard isVSCode || isAntigravity else {
             nbLog("Ignored \(name) from \(termProgram.isEmpty ? bundleId : termProgram) (\(projectName))")
             return
         }
@@ -297,9 +299,11 @@ final class HookServer: @unchecked Sendable {
 
         let termProgram = payload["term_program"] as? String ?? ""
         let bundleId    = payload["bundle_id"]    as? String ?? ""
+        let source      = payload["source"]       as? String ?? ""
+        let isAntigravity = source == "antigravity" || payload["conversationId"] != nil
         let isVSCode = termProgram.lowercased().contains("vscode") ||
                        bundleId.lowercased().contains("vscode")
-        guard isVSCode else {
+        guard isVSCode || isAntigravity else {
             Task.detached { [weak self] in
                 self?.sendLine(fd: fd, text: #"{"permissionDecision":"ask"}"#)
                 close(fd)
@@ -310,7 +314,11 @@ final class HookServer: @unchecked Sendable {
         let tool = payload["tool_name"] as? String ?? "Tool"
         var command = tool
         if let input = payload["tool_input"] as? [String: Any] {
-            command = input["command"] as? String ?? tool
+            command = (input["command"] as? String) ??
+                      (input["CommandLine"] as? String) ??
+                      (input["TargetFile"] as? String) ??
+                      (input["path"] as? String) ??
+                      (input["AbsolutePath"] as? String) ?? tool
         }
         nbLog("PermissionRequest \(tool)")
 
@@ -445,17 +453,40 @@ final class HookServer: @unchecked Sendable {
             "LS":         "Liste",
             "MultiEdit":  "Modifie",
             "NotebookEdit": "Notebook",
+            // Antigravity CLI tools
+            "run_command": "Exécute",
+            "view_file": "Lit",
+            "replace_file_content": "Modifie",
+            "write_to_file": "Écrit",
+            "grep_search": "Recherche",
+            "find_by_name": "Cherche",
+            "search_web": "Recherche web",
+            "read_url_content": "Récupère",
+            "call_mcp_tool": "MCP",
+            "generate_image": "Génère",
+            "ask_question": "Question",
+            "schedule": "Planifie",
+            "manage_task": "Tâche",
+            "invoke_subagent": "Sous-agent",
+            "send_message": "Message",
+            "list_dir": "Liste",
         ]
         let label = labels[tool] ?? tool
-        if let cmd = input["command"] as? String {
+        if let cmd = (input["command"] as? String) ?? (input["CommandLine"] as? String) {
             let short = String(cmd.prefix(40))
             return "\(label) · \(short)"
-        } else if let path = input["path"] as? String {
+        } else if let path = (input["path"] as? String) ?? (input["AbsolutePath"] as? String) ?? (input["DirectoryPath"] as? String) {
             return "\(label) · \(URL(fileURLWithPath: path).lastPathComponent)"
-        } else if let file = input["file_path"] as? String {
+        } else if let file = (input["file_path"] as? String) ?? (input["TargetFile"] as? String) {
             return "\(label) · \(URL(fileURLWithPath: file).lastPathComponent)"
-        } else if let query = input["query"] as? String {
+        } else if let query = (input["query"] as? String) ?? (input["Query"] as? String) ?? (input["Pattern"] as? String) {
             return "\(label) · \(String(query.prefix(40)))"
+        } else if let url = (input["url"] as? String) ?? (input["Url"] as? String) {
+            return "\(label) · \(String(url.prefix(40)))"
+        } else if let toolName = input["ToolName"] as? String {
+            return "\(label) · \(toolName)"
+        } else if let subagent = (input["Role"] as? String) ?? (input["TypeName"] as? String) {
+            return "\(label) · \(subagent)"
         }
         return label
     }

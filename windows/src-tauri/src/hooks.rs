@@ -303,6 +303,147 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
     Ok(backup.to_string_lossy().to_string())
 }
 
+// ── Antigravity CLI hooks ─────────────────────────────────────────────────────
+
+pub fn antigravity_hooks_path() -> PathBuf {
+    home().join(".gemini").join("config").join("hooks.json")
+}
+
+fn antigravity_hook_command(event: &str) -> String {
+    let exe = settings::hook_exe_path().to_string_lossy().replace('\\', "/");
+    format!("\"{exe}\" {event}")
+}
+
+fn merged_antigravity(existing: &Value) -> Value {
+    let mut root = existing.as_object().cloned().unwrap_or_default();
+    let hook_obj = json!({
+        "PreInvocation": [
+            {
+                "type": "command",
+                "command": antigravity_hook_command("PreInvocation")
+            }
+        ],
+        "PreToolUse": [
+            {
+                "matcher": "run_command",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": antigravity_hook_command("PermissionRequest"),
+                        "timeout": 120
+                    }
+                ]
+            },
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": antigravity_hook_command("PreToolUse")
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": antigravity_hook_command("PostToolUse")
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "type": "command",
+                "command": antigravity_hook_command("Stop")
+            }
+        ]
+    });
+    root.insert("coucou".into(), hook_obj);
+    Value::Object(root)
+}
+
+fn without_ours_antigravity(existing: &Value) -> Value {
+    let mut root = existing.as_object().cloned().unwrap_or_default();
+    root.remove("coucou");
+    Value::Object(root)
+}
+
+pub fn antigravity_status() -> HookStatus {
+    let path = antigravity_hooks_path();
+    let installed = match std::fs::read(&path) {
+        Ok(bytes) => {
+            parse_settings(&bytes, &path.display().to_string())
+                .map(|val| val.get("coucou").is_some())
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    };
+    let hook_path = settings::hook_exe_path();
+    HookStatus {
+        installed,
+        settings_path: path.to_string_lossy().to_string(),
+        hook_ready: hook_path.exists(),
+        hook_path: hook_path.to_string_lossy().to_string(),
+    }
+}
+
+pub fn antigravity_preview(install: bool) -> Result<HookPreview, String> {
+    let path = antigravity_hooks_path();
+    let current = match std::fs::read(&path) {
+        Ok(bytes) => parse_settings(&bytes, &path.display().to_string())?,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(err) => return Err(format!("Can't read {}: {err}", path.display())),
+    };
+    let next = if install { merged_antigravity(&current) } else { without_ours_antigravity(&current) };
+    let bytes = std::fs::read(&path).unwrap_or_default();
+    Ok(HookPreview {
+        diff: unified_diff(&pretty(&current), &pretty(&next)),
+        backup: path.with_file_name(format!("hooks.json.bak-{}", stamp())).to_string_lossy().to_string(),
+        settings_path: path.to_string_lossy().to_string(),
+        fingerprint: fingerprint(&bytes),
+    })
+}
+
+pub fn antigravity_write(install: bool, fingerprint_val: &str) -> Result<String, String> {
+    let path = antigravity_hooks_path();
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+
+    let bytes = std::fs::read(&path).unwrap_or_default();
+    if fingerprint(&bytes) != fingerprint_val {
+        return Err(format!(
+            "{} changed since the preview. Nothing was written — review the new diff.",
+            path.display()
+        ));
+    }
+
+    let backup = path.with_file_name(format!("hooks.json.bak-{}", stamp()));
+    if path.exists() {
+        std::fs::copy(&path, &backup).map_err(|e| format!("backup failed: {e}"))?;
+    }
+
+    let current = if path.exists() {
+        parse_settings(&bytes, &path.display().to_string())?
+    } else {
+        json!({})
+    };
+    let next = if install { merged_antigravity(&current) } else { without_ours_antigravity(&current) };
+    let mut text = pretty(&next);
+    text.push('\n');
+
+    let temp = path.with_extension(format!("json.coucou-{}", std::process::id()));
+    std::fs::write(&temp, text.as_bytes()).map_err(|e| format!("write failed: {e}"))?;
+    if let Err(err) = std::fs::rename(&temp, &path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("write failed: {err}"));
+    }
+    Ok(backup.to_string_lossy().to_string())
+}
+
 /// Copies coucou-hook.exe into %LOCALAPPDATA%\Coucou\bin on launch.
 /// In a bundled install it comes from the app resources; in `tauri dev` it sits
 /// next to coucou.exe in the workspace target directory.

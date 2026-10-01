@@ -219,6 +219,27 @@ fn hooks_apply(
 }
 
 #[tauri::command]
+fn antigravity_hooks_status() -> HookStatus {
+    hooks::antigravity_status()
+}
+
+#[tauri::command]
+fn antigravity_hooks_preview(install: bool) -> Result<HookPreview, String> {
+    hooks::antigravity_preview(install)
+}
+
+#[tauri::command]
+fn antigravity_hooks_apply(
+    app: AppHandle,
+    install: bool,
+    fingerprint: String,
+) -> Result<String, String> {
+    let backup = hooks::antigravity_write(install, &fingerprint)?;
+    let _ = app.emit("antigravity-hooks-changed", install);
+    Ok(backup)
+}
+
+#[tauri::command]
 fn approval_decision(app: AppHandle, request_id: String, decision: String) {
     pipe::answer(&app, &request_id, &decision);
 }
@@ -393,6 +414,9 @@ pub fn run() {
             hooks_status,
             hooks_preview,
             hooks_apply,
+            antigravity_hooks_status,
+            antigravity_hooks_preview,
+            antigravity_hooks_apply,
             approval_decision,
             approval_ack,
             approval_decline,

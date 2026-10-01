@@ -23,6 +23,7 @@ interface HookPayload {
   prompt?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  source?: string;
 }
 
 const PROJECT_ALIASES: Record<string, string> = {
@@ -41,8 +42,9 @@ function lastPathComponent(p: string): string {
   return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
 }
 
-/** frenchStep() — same labels as the macOS app. */
+/** frenchStep() — tool labels for Claude Code and Antigravity CLI. */
 const TOOL_LABELS: Record<string, string> = {
+  // Claude Code tools
   Bash: "Exécute",
   Read: "Lit",
   Write: "Écrit",
@@ -57,38 +59,77 @@ const TOOL_LABELS: Record<string, string> = {
   MultiEdit: "Modifie",
   NotebookEdit: "Notebook",
   PowerShell: "Exécute",
+
+  // Antigravity CLI tools
+  run_command: "Exécute",
+  view_file: "Lit",
+  replace_file_content: "Modifie",
+  write_to_file: "Écrit",
+  grep_search: "Recherche",
+  find_by_name: "Cherche",
+  search_web: "Recherche web",
+  read_url_content: "Récupère",
+  call_mcp_tool: "MCP",
+  generate_image: "Génère",
+  ask_question: "Question",
+  schedule: "Planifie",
+  manage_task: "Tâche",
+  invoke_subagent: "Sous-agent",
+  send_message: "Message",
+  list_dir: "Liste",
 };
 
 function stepLabel(tool: string, input: Record<string, unknown>): string {
   const label = TOOL_LABELS[tool] ?? tool;
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : null);
-  const cmd = str("command");
+
+  // Command execution
+  const cmd = str("command") ?? str("CommandLine");
   if (cmd) return `${label} · ${cmd.slice(0, 40)}`;
-  const path = str("path");
+
+  // File paths & locations
+  const path = str("path") ?? str("AbsolutePath") ?? str("DirectoryPath");
   if (path) return `${label} · ${lastPathComponent(path)}`;
-  const file = str("file_path");
+  const file = str("file_path") ?? str("TargetFile");
   if (file) return `${label} · ${lastPathComponent(file)}`;
-  const query = str("query");
+
+  // Searches & queries
+  const query = str("query") ?? str("Query") ?? str("Pattern");
   if (query) return `${label} · ${query.slice(0, 40)}`;
+
+  // URLs & MCP
+  const url = str("url") ?? str("Url");
+  if (url) return `${label} · ${url.slice(0, 40)}`;
+  const mcpTool = str("ToolName");
+  if (mcpTool) return `${label} · ${mcpTool}`;
+
+  // Subagents
+  const subagent = str("Role") ?? str("TypeName");
+  if (subagent) return `${label} · ${subagent}`;
+
   return label;
 }
 
 /**
- * What the Allow button actually authorises. Approving "Write" tells you nothing
- * — approving `Write · C:\…\.env` tells you everything, and the difference is
- * the whole point of approving from the island rather than blind.
- *
- * Ordered by how specific the field is, so an unfamiliar tool still shows
- * whatever identifying string it carries instead of falling back to its name.
+ * What the Allow button actually authorises.
  */
 const APPROVAL_FIELDS = [
-  "command", // Bash, PowerShell
-  "file_path", // Write, Edit, MultiEdit, NotebookEdit
-  "path", // Read, LS
-  "url", // WebFetch
-  "query", // WebSearch
-  "pattern", // Glob, Grep
-  "prompt", // Task
+  "command", // Claude Code Bash, PowerShell
+  "CommandLine", // Antigravity run_command
+  "file_path", // Claude Code Write, Edit
+  "TargetFile", // Antigravity replace_file_content, write_to_file
+  "path", // Claude Code Read, LS
+  "AbsolutePath", // Antigravity view_file
+  "DirectoryPath", // Antigravity list_dir
+  "url", // Claude Code WebFetch
+  "Url", // Antigravity read_url_content
+  "query", // Claude Code WebSearch
+  "Query", // Antigravity grep_search
+  "pattern", // Claude Code Glob, Grep
+  "Pattern", // Antigravity find_by_name
+  "ToolName", // Antigravity call_mcp_tool
+  "prompt", // Claude Code Task
+  "Prompt", // Antigravity schedule, generate_image
 ] as const;
 
 function approvalTarget(tool: string, input: Record<string, unknown>): string {
@@ -101,11 +142,14 @@ function approvalTarget(tool: string, input: Record<string, unknown>): string {
   return tool;
 }
 
-function upsert(projectName: string, cwd: string) {
+function upsert(projectName: string, cwd: string, source?: string) {
   const t = State.tasks.find((x) => x.id === CLAUDE_ID);
   if (!t) return;
   t.name = projectName;
   if (cwd) t.sessionCwd = cwd;
+  if (source === "antigravity") {
+    t.source = "antigravity";
+  }
 }
 
 function clearSession() {
@@ -113,7 +157,7 @@ function clearSession() {
   if (!t) return;
   t.steps = [];
   t.stepIndex = 0;
-  t.name = "VS Code";
+  t.name = t.source === "antigravity" ? "Antigravity" : "VS Code";
   t.pillBadge = null;
 }
 
@@ -149,13 +193,13 @@ function handleHook(island: Island, payload: HookPayload) {
 
   switch (name) {
     case "SessionStart":
-      upsert(projectName, cwd);
+      upsert(projectName, cwd, payload.source);
       surface("overview", false);
       Sound.play("work");
       break;
 
     case "UserPromptSubmit": {
-      upsert(projectName, cwd);
+      upsert(projectName, cwd, payload.source);
       State.updateTask(CLAUDE_ID, "thinking");
       // The field is `prompt`; reading `message` meant this step was always blank.
       const asked = payload.prompt ?? payload.message;
@@ -165,7 +209,7 @@ function handleHook(island: Island, payload: HookPayload) {
     }
 
     case "PreToolUse": {
-      upsert(projectName, cwd);
+      upsert(projectName, cwd, payload.source);
       State.updateTask(CLAUDE_ID, "working");
       const tool = payload.tool_name ?? "Tool";
       State.appendStep(CLAUDE_ID, stepLabel(tool, payload.tool_input ?? {}));
@@ -236,7 +280,7 @@ function handleHook(island: Island, payload: HookPayload) {
         if (requestId) void Bridge.approvalDecline(requestId);
         break;
       }
-      upsert(projectName, cwd);
+      upsert(projectName, cwd, payload.source);
       if (pendingTimeout != null) window.clearTimeout(pendingTimeout);
       const tool = payload.tool_name ?? "Tool";
       const input = payload.tool_input ?? {};
