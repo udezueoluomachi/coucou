@@ -15,7 +15,7 @@ const BASE_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/mo
 const MAX_INLINE_TEXT: u64 = 200_000;
 
 #[allow(dead_code)]
-pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_MODEL: &str = "gemini-3.0-flash";
 
 const SYSTEM_PROMPT: &str = "You are Mochi, a personal AI assistant living at the top of the user's screen. \
 You have Google Search grounding and can help with research, coding, recommendations, tasks, and questions. \

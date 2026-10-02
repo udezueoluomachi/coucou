@@ -93,6 +93,10 @@ export interface Settings {
   hooksInstalled: boolean;
   /** Claude model used by the chat. */
   model: string;
+  /** Gemini model used by the chat (Gemini 3.0+). */
+  geminiModel?: string;
+  /** Which provider is active for chat: 'claude' or 'gemini'. */
+  chatProvider?: "claude" | "gemini";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -107,6 +111,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autostart: false,
   hooksInstalled: false,
   model: "claude-opus-5",
+  geminiModel: "gemini-3.0-flash",
+  chatProvider: "gemini",
 };
 
 type Listener = () => void;

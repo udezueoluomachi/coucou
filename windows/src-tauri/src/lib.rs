@@ -332,18 +332,30 @@ async fn chat_send(
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
-    let model = shared.settings.lock().unwrap().model.clone();
-    if model.starts_with("gemini-") {
+    let (chat_provider, claude_model, gemini_model) = {
+        let s = shared.settings.lock().unwrap();
+        (s.chat_provider.clone(), s.model.clone(), s.gemini_model.clone())
+    };
+
+    let use_gemini = chat_provider == "gemini"
+        || (secrets::present("gemini-api-key") && !secrets::present("anthropic-api-key"));
+
+    if use_gemini {
         let gem_context = context.map(|c| match c {
             ChatContext::File { name, path } => gemini::ChatContext::File { name, path },
             ChatContext::Window { app_name, title, url } => {
                 gemini::ChatContext::Window { app_name, title, url }
             }
         });
+        let model = if gemini_model.is_empty() {
+            gemini::DEFAULT_MODEL.to_string()
+        } else {
+            gemini_model
+        };
         let reply = gemini::send(&gemini_chat, &model, query, gem_context).await?;
         Ok(ChatReply { text: reply.text })
     } else {
-        claude::send(&claude_chat, &model, query, context).await
+        claude::send(&claude_chat, &claude_model, query, context).await
     }
 }
 

@@ -300,12 +300,15 @@ function antigravitySection(status: HookStatus): HTMLElement {
 // ── AI Model & API sections ──────────────────────────────────────────────────
 
 const MODELS: [string, string][] = [
-  ["gemini-2.5-flash", "Gemini 2.5 Flash (Google)"],
-  ["gemini-2.5-pro", "Gemini 2.5 Pro (Google)"],
-  ["gemini-2.0-flash", "Gemini 2.0 Flash (Google)"],
   ["claude-opus-5", "Claude Opus 5 (Anthropic)"],
   ["claude-sonnet-5", "Claude Sonnet 5 (Anthropic)"],
   ["claude-haiku-4-5", "Claude Haiku 4.5 (Anthropic)"],
+];
+
+const GEMINI_MODELS: [string, string][] = [
+  ["gemini-3.1-pro", "Gemini 3.1 Pro (Google)"],
+  ["gemini-3.0-pro", "Gemini 3.0 Pro (Google)"],
+  ["gemini-3.0-flash", "Gemini 3.0 Flash (Google)"],
 ];
 
 function geminiSection(hasKey: boolean): HTMLElement {
@@ -346,6 +349,8 @@ function geminiSection(hasKey: boolean): HTMLElement {
     try {
       await Bridge.secretSet("gemini-api-key", value);
       field.value = "";
+      settings.chatProvider = "gemini";
+      void save();
       feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
       await refresh();
     } catch (err) {
@@ -366,6 +371,19 @@ function geminiSection(hasKey: boolean): HTMLElement {
 
   clearBtn.style.display = hasKey ? "" : "none";
 
+  const geminiModelSelect = h("select", {}) as HTMLSelectElement;
+  for (const [id, label] of GEMINI_MODELS) geminiModelSelect.append(h("option", { value: id, text: label }));
+  const currGemModel = settings.geminiModel || "gemini-3.0-flash";
+  if (!GEMINI_MODELS.some(([id]) => id === currGemModel)) {
+    geminiModelSelect.append(h("option", { value: currGemModel, text: currGemModel }));
+  }
+  geminiModelSelect.value = currGemModel;
+  geminiModelSelect.addEventListener("change", () => {
+    settings.geminiModel = geminiModelSelect.value;
+    settings.chatProvider = "gemini";
+    void save();
+  });
+
   const aiStudioLink = h("a", {
     href: "https://aistudio.google.com/app/apikey",
     target: "_blank",
@@ -384,6 +402,7 @@ function geminiSection(hasKey: boolean): HTMLElement {
     h("h2", {}, dot, h("span", { text: "Google Gemini" })),
     state,
     h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
+    h("div", { class: "row" }, h("label", { text: "Chat Model" }), geminiModelSelect),
     h("div", { class: "row", style: "margin-top:-4px" }, aiStudioLink),
     feedback,
   );
@@ -422,6 +441,8 @@ function apiSection(hasKey: boolean): HTMLElement {
     try {
       await Bridge.secretSet("anthropic-api-key", value);
       field.value = "";
+      settings.chatProvider = "claude";
+      void save();
       feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
       await refresh();
     } catch (err) {
@@ -448,6 +469,7 @@ function apiSection(hasKey: boolean): HTMLElement {
   model.value = settings.model;
   model.addEventListener("change", () => {
     settings.model = model.value;
+    settings.chatProvider = "claude";
     void save();
   });
 

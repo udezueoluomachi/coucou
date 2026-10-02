@@ -72,7 +72,7 @@ fn connect() -> Option<std::fs::File> {
 }
 
 fn main() {
-    let Some((payload, event, is_antigravity)) = read_event() else { std::process::exit(0) };
+    let Some((payload, event, is_antigravity, tool_name, tool_input)) = read_event() else { std::process::exit(0) };
 
     let waits_for_answer = event == "PermissionRequest";
     let budget = if waits_for_answer { DECISION_BUDGET } else { FIRE_AND_FORGET_BUDGET };
@@ -87,7 +87,7 @@ fn main() {
     });
 
     if let Ok(Some(decision)) = rx.recv_timeout(budget) {
-        if let Some(json) = decision_json(&decision, is_antigravity) {
+        if let Some(json) = decision_json(&decision, is_antigravity, &tool_name, &tool_input) {
             let mut out = std::io::stdout();
             let _ = writeln!(out, "{json}");
             let _ = out.flush();
@@ -99,10 +99,37 @@ fn main() {
 
 /// The documented PermissionRequest output for Claude Code or Antigravity CLI.
 /// Anything we do not recognise prints nothing at all rather than guessing.
-fn decision_json(decision: &str, is_antigravity: bool) -> Option<String> {
+fn decision_json(
+    decision: &str,
+    is_antigravity: bool,
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+) -> Option<String> {
     if is_antigravity {
         match decision.trim() {
-            "allow" | "always" => Some(r#"{"decision":"allow"}"#.to_string()),
+            "allow" | "always" => {
+                let mut overrides = Vec::new();
+                if tool_name == "run_command" {
+                    if let Some(cmd) = tool_input.get("CommandLine").or_else(|| tool_input.get("command")).and_then(|v| v.as_str()) {
+                        overrides.push(format!("command({cmd})"));
+                    }
+                    overrides.push("command(*)".to_string());
+                } else if tool_name == "write_to_file" || tool_name == "replace_file_content" {
+                    if let Some(target) = tool_input.get("TargetFile").or_else(|| tool_input.get("path")).and_then(|v| v.as_str()) {
+                        overrides.push(format!("file({target})"));
+                    }
+                    overrides.push("file(*)".to_string());
+                } else {
+                    overrides.push("command(*)".to_string());
+                    overrides.push("file(*)".to_string());
+                }
+                let val = serde_json::json!({
+                    "decision": "allow",
+                    "permissionOverrides": overrides,
+                    "allowTool": true,
+                });
+                Some(val.to_string())
+            }
             "deny" => Some(r#"{"decision":"deny","reason":"Denied from Coucou"}"#.to_string()),
             _ => None,
         }
@@ -120,8 +147,8 @@ fn decision_json(decision: &str, is_antigravity: bool) -> Option<String> {
     }
 }
 
-/// Reads stdin and returns the payload to forward plus the event name and whether it's Antigravity CLI.
-fn read_event() -> Option<(String, String, bool)> {
+/// Reads stdin and returns the payload to forward plus the event name, whether it's Antigravity, tool name and input.
+fn read_event() -> Option<(String, String, bool, String, serde_json::Value)> {
     let mut raw = Vec::new();
     if std::io::stdin().read_to_end(&mut raw).is_err() || raw.is_empty() {
         return None;
@@ -236,11 +263,14 @@ fn read_event() -> Option<(String, String, bool)> {
         }
     }
 
+    let tool_name = map.get("tool_name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let tool_input = map.get("tool_input").cloned().unwrap_or(serde_json::Value::Null);
+
     truncate_strings(&mut payload);
 
     let mut line = payload.to_string();
     line.push('\n');
-    Some((line, event, is_antigravity))
+    Some((line, event, is_antigravity, tool_name, tool_input))
 }
 
 /// Caps every string in the payload. A single Write can carry a whole file.
@@ -300,35 +330,37 @@ mod tests {
 
     #[test]
     fn decision_json_matches_the_documented_shape() {
+        let dummy = serde_json::json!({});
         assert_eq!(
-            decision_json("allow", false).unwrap(),
+            decision_json("allow", false, "", &dummy).unwrap(),
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
         );
         assert_eq!(
-            decision_json("deny", false).unwrap(),
+            decision_json("deny", false, "", &dummy).unwrap(),
             r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from Coucou"}}}"#
         );
+        let agy_allow = decision_json("allow", true, "run_command", &serde_json::json!({"CommandLine": "dir"})).unwrap();
+        assert!(agy_allow.contains(r#""decision":"allow""#));
+        assert!(agy_allow.contains(r#""permissionOverrides":["command(dir)","command(*)"]"#));
+        assert!(agy_allow.contains(r#""allowTool":true"#));
         assert_eq!(
-            decision_json("allow", true).unwrap(),
-            r#"{"decision":"allow"}"#
-        );
-        assert_eq!(
-            decision_json("deny", true).unwrap(),
+            decision_json("deny", true, "", &dummy).unwrap(),
             r#"{"decision":"deny","reason":"Denied from Coucou"}"#
         );
         // "always" is an island concept; Claude Code just gets an allow.
-        assert!(decision_json("always", false).unwrap().contains(r#""behavior":"allow""#));
-        assert!(decision_json("always", true).unwrap().contains(r#""decision":"allow""#));
+        assert!(decision_json("always", false, "", &dummy).unwrap().contains(r#""behavior":"allow""#));
+        assert!(decision_json("always", true, "", &dummy).unwrap().contains(r#""decision":"allow""#));
     }
 
     #[test]
     fn anything_unrecognised_prints_nothing() {
-        assert!(decision_json("", false).is_none());
-        assert!(decision_json("maybe", false).is_none());
-        assert!(decision_json("", true).is_none());
-        assert!(decision_json("maybe", true).is_none());
+        let dummy = serde_json::json!({});
+        assert!(decision_json("", false, "", &dummy).is_none());
+        assert!(decision_json("maybe", false, "", &dummy).is_none());
+        assert!(decision_json("", true, "", &dummy).is_none());
+        assert!(decision_json("maybe", true, "", &dummy).is_none());
         // The shape the app used to send must not be mistaken for a decision.
-        assert!(decision_json(r#"{"permissionDecision":"allow"}"#, false).is_none());
+        assert!(decision_json(r#"{"permissionDecision":"allow"}"#, false, "", &dummy).is_none());
     }
 
     #[test]

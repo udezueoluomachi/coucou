@@ -259,7 +259,28 @@ def main():
     if is_antigravity:
         if waits_for_answer:
             if decision and "allow" in decision.strip().lower():
-                sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")
+                args = payload.get("tool_input") or {}
+                tool_name = payload.get("tool_name", "")
+                overrides = []
+                if tool_name == "run_command":
+                    cmd = args.get("CommandLine") or args.get("command") or ""
+                    if cmd:
+                        overrides.append(f"command({cmd})")
+                    overrides.append("command(*)")
+                elif tool_name in ("write_to_file", "replace_file_content"):
+                    target = args.get("TargetFile") or args.get("path") or ""
+                    if target:
+                        overrides.append(f"file({target})")
+                    overrides.append("file(*)")
+                else:
+                    overrides.extend(["command(*)", "file(*)"])
+
+                out = {
+                    "decision": "allow",
+                    "permissionOverrides": overrides,
+                    "allowTool": True,
+                }
+                sys.stdout.write(json.dumps(out) + "\n")
             elif decision and "deny" in decision.strip().lower():
                 sys.stdout.write(json.dumps({"decision": "deny", "reason": "Denied from Coucou"}) + "\n")
             else:
@@ -267,7 +288,7 @@ def main():
                 sys.stdout.write(json.dumps({"decision": "ask"}) + "\n")
         else:
             if arg_event == "PreToolUse" or event == "PreToolUse":
-                sys.stdout.write(json.dumps({"decision": "allow"}) + "\n")
+                sys.stdout.write(json.dumps({"decision": "allow", "allowTool": True}) + "\n")
             else:
                 sys.stdout.write("{}\n")
         sys.stdout.flush()
