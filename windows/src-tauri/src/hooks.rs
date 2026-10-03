@@ -330,22 +330,12 @@ fn merged_antigravity(existing: &Value) -> Value {
         ],
         "PreToolUse": [
             {
-                "matcher": "run_command|write_to_file|replace_file_content",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": antigravity_hook_command("PermissionRequest"),
-                        "timeout": 35
-                    }
-                ]
-            },
-            {
                 "matcher": "*",
                 "hooks": [
                     {
                         "type": "command",
                         "command": antigravity_hook_command("PreToolUse"),
-                        "timeout": 5
+                        "timeout": 35
                     }
                 ]
             }

@@ -94,10 +94,21 @@ fn main() {
             std::process::exit(0);
         }
     }
-    if is_antigravity && waits_for_answer {
-        let mut out = std::io::stdout();
-        let _ = writeln!(out, r#"{{"decision":"ask"}}"#);
-        let _ = out.flush();
+
+    if is_antigravity {
+        if waits_for_answer {
+            let mut out = std::io::stdout();
+            let _ = writeln!(out, r#"{{"decision":"ask"}}"#);
+            let _ = out.flush();
+        } else if event == "PreToolUse" {
+            let mut out = std::io::stdout();
+            let _ = writeln!(out, r#"{{"decision":"allow","allowTool":true}}"#);
+            let _ = out.flush();
+        } else {
+            let mut out = std::io::stdout();
+            let _ = writeln!(out, "{{}}");
+            let _ = out.flush();
+        }
     }
     // Nothing printed: asks in the terminal, as if we were not here.
     std::process::exit(0);
@@ -206,8 +217,13 @@ fn read_event() -> Option<(String, String, bool, String, serde_json::Value)> {
             }
         }
 
+        let tool_name_str = map.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+        let needs_approval = tool_name_str == "run_command"
+            || tool_name_str == "write_to_file"
+            || tool_name_str == "replace_file_content";
+
         // Map event name
-        if arg_event == "PermissionRequest" || has_ask_flag {
+        if arg_event == "PermissionRequest" || has_ask_flag || (arg_event == "PreToolUse" && needs_approval) {
             event = "PermissionRequest".to_string();
         } else if arg_event == "PreInvocation" {
             event = "UserPromptSubmit".to_string();

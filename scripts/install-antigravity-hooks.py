@@ -49,22 +49,12 @@ def build_coucou_hooks(cmd_prefix):
         ],
         "PreToolUse": [
             {
-                "matcher": "run_command|write_to_file|replace_file_content",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"{cmd_prefix} PermissionRequest",
-                        "timeout": 35
-                    }
-                ]
-            },
-            {
                 "matcher": "*",
                 "hooks": [
                     {
                         "type": "command",
                         "command": f"{cmd_prefix} PreToolUse",
-                        "timeout": 5
+                        "timeout": 35
                     }
                 ]
             }
