@@ -26,12 +26,14 @@ def get_hook_command_prefix():
     local_app_data = os.environ.get("LOCALAPPDATA", "")
     coucou_exe = os.path.join(local_app_data, "Coucou", "bin", "coucou-hook.exe")
     if os.path.isfile(coucou_exe):
-        exe_path = coucou_exe.replace("\\", "/")
-        return f'"{exe_path}"'
+        exe_path = os.path.normpath(coucou_exe)
+        if " " in exe_path:
+            return f'"{exe_path}"'
+        return exe_path
 
     # Fallback to python relay script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    relay_script = os.path.join(script_dir, "coucou-antigravity-hook.py").replace("\\", "/")
+    relay_script = os.path.normpath(os.path.join(script_dir, "coucou-antigravity-hook.py"))
     if " " in relay_script:
         return f'python "{relay_script}"'
     return f"python {relay_script}"
@@ -41,7 +43,8 @@ def build_coucou_hooks(cmd_prefix):
         "PreInvocation": [
             {
                 "type": "command",
-                "command": f"{cmd_prefix} PreInvocation"
+                "command": f"{cmd_prefix} PreInvocation",
+                "timeout": 5
             }
         ],
         "PreToolUse": [
@@ -51,16 +54,17 @@ def build_coucou_hooks(cmd_prefix):
                     {
                         "type": "command",
                         "command": f"{cmd_prefix} PermissionRequest",
-                        "timeout": 120
+                        "timeout": 35
                     }
                 ]
             },
             {
-                "matcher": "view_file|grep_search|find_by_name|search_web",
+                "matcher": "*",
                 "hooks": [
                     {
                         "type": "command",
-                        "command": f"{cmd_prefix} PreToolUse"
+                        "command": f"{cmd_prefix} PreToolUse",
+                        "timeout": 5
                     }
                 ]
             }
@@ -71,7 +75,8 @@ def build_coucou_hooks(cmd_prefix):
                 "hooks": [
                     {
                         "type": "command",
-                        "command": f"{cmd_prefix} PostToolUse"
+                        "command": f"{cmd_prefix} PostToolUse",
+                        "timeout": 5
                     }
                 ]
             }
@@ -79,7 +84,8 @@ def build_coucou_hooks(cmd_prefix):
         "Stop": [
             {
                 "type": "command",
-                "command": f"{cmd_prefix} Stop"
+                "command": f"{cmd_prefix} Stop",
+                "timeout": 5
             }
         ]
     }

@@ -142,7 +142,7 @@ def talk_windows_pipe(pipe_name, payload_bytes, wait_for_answer=False):
         # Wait for answer
         answer = b""
         start_wait = time.time()
-        while time.time() - start_wait < 110:
+        while time.time() - start_wait < 30:
             chunk = handle.read(1024)
             if not chunk:
                 break

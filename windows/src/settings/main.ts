@@ -306,6 +306,9 @@ const MODELS: [string, string][] = [
 ];
 
 const GEMINI_MODELS: [string, string][] = [
+  ["gemini-2.5-flash", "Gemini 2.5 Flash (Google)"],
+  ["gemini-2.5-pro", "Gemini 2.5 Pro (Google)"],
+  ["gemini-2.0-flash", "Gemini 2.0 Flash (Google)"],
   ["gemini-3.1-pro", "Gemini 3.1 Pro (Google)"],
   ["gemini-3.0-pro", "Gemini 3.0 Pro (Google)"],
   ["gemini-3.0-flash", "Gemini 3.0 Flash (Google)"],
@@ -332,6 +335,46 @@ function geminiSection(hasKey: boolean): HTMLElement {
   const clearBtn = h("button", { class: "danger", text: "Remove" });
   const feedback = h("div", {});
 
+  const geminiModelSelect = h("select", {}) as HTMLSelectElement;
+  for (const [id, label] of GEMINI_MODELS) geminiModelSelect.append(h("option", { value: id, text: label }));
+  const currGemModel = settings.geminiModel || "gemini-2.5-flash";
+  if (!GEMINI_MODELS.some(([id]) => id === currGemModel)) {
+    geminiModelSelect.append(h("option", { value: currGemModel, text: currGemModel }));
+  }
+  geminiModelSelect.value = currGemModel;
+  geminiModelSelect.addEventListener("change", () => {
+    settings.geminiModel = geminiModelSelect.value;
+    settings.chatProvider = "gemini";
+    void save();
+  });
+
+  async function loadModels() {
+    try {
+      const models = await Bridge.geminiListModels();
+      if (models && models.length > 0) {
+        clear(geminiModelSelect);
+        for (const m of models) {
+          geminiModelSelect.append(h("option", { value: m.id, text: m.label }));
+        }
+        const current = settings.geminiModel || models[0].id;
+        if (!models.some((m) => m.id === current)) {
+          geminiModelSelect.append(h("option", { value: current, text: current }));
+        }
+        geminiModelSelect.value = current;
+        if (settings.geminiModel !== current) {
+          settings.geminiModel = current;
+          void save();
+        }
+      }
+    } catch (err) {
+      console.warn("[coucou] failed to load gemini models dynamically", err);
+    }
+  }
+
+  if (hasKey) {
+    void loadModels();
+  }
+
   async function refresh() {
     const present = (await Bridge.secretPresent("gemini-api-key")) ?? false;
     dot.style.background = present ? "#22c55e" : "#f4505e";
@@ -340,6 +383,9 @@ function geminiSection(hasKey: boolean): HTMLElement {
       : "Free keys available via Google AI Studio.";
     field.placeholder = present ? "••••••••••••  (stored)" : "AIzaSy...";
     clearBtn.style.display = present ? "" : "none";
+    if (present) {
+      void loadModels();
+    }
   }
 
   saveBtn.addEventListener("click", async () => {
@@ -370,19 +416,6 @@ function geminiSection(hasKey: boolean): HTMLElement {
   });
 
   clearBtn.style.display = hasKey ? "" : "none";
-
-  const geminiModelSelect = h("select", {}) as HTMLSelectElement;
-  for (const [id, label] of GEMINI_MODELS) geminiModelSelect.append(h("option", { value: id, text: label }));
-  const currGemModel = settings.geminiModel || "gemini-3.0-flash";
-  if (!GEMINI_MODELS.some(([id]) => id === currGemModel)) {
-    geminiModelSelect.append(h("option", { value: currGemModel, text: currGemModel }));
-  }
-  geminiModelSelect.value = currGemModel;
-  geminiModelSelect.addEventListener("change", () => {
-    settings.geminiModel = geminiModelSelect.value;
-    settings.chatProvider = "gemini";
-    void save();
-  });
 
   const aiStudioLink = h("a", {
     href: "https://aistudio.google.com/app/apikey",

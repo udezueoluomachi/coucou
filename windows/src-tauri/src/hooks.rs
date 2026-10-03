@@ -310,8 +310,13 @@ pub fn antigravity_hooks_path() -> PathBuf {
 }
 
 fn antigravity_hook_command(event: &str) -> String {
-    let exe = settings::hook_exe_path().to_string_lossy().replace('\\', "/");
-    format!("\"{exe}\" {event}")
+    let exe = settings::hook_exe_path();
+    let exe_str = exe.to_string_lossy();
+    if exe_str.contains(' ') {
+        format!("\"{exe_str}\" {event}")
+    } else {
+        format!("{exe_str} {event}")
+    }
 }
 
 fn merged_antigravity(existing: &Value) -> Value {
@@ -325,12 +330,22 @@ fn merged_antigravity(existing: &Value) -> Value {
         ],
         "PreToolUse": [
             {
+                "matcher": "run_command|write_to_file|replace_file_content",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": antigravity_hook_command("PermissionRequest"),
+                        "timeout": 35
+                    }
+                ]
+            },
+            {
                 "matcher": "*",
                 "hooks": [
                     {
                         "type": "command",
                         "command": antigravity_hook_command("PreToolUse"),
-                        "timeout": 120
+                        "timeout": 5
                     }
                 ]
             }
@@ -341,7 +356,8 @@ fn merged_antigravity(existing: &Value) -> Value {
                 "hooks": [
                     {
                         "type": "command",
-                        "command": antigravity_hook_command("PostToolUse")
+                        "command": antigravity_hook_command("PostToolUse"),
+                        "timeout": 5
                     }
                 ]
             }

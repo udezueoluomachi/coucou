@@ -24,7 +24,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(300);
 /// Whole-run budget for an event nobody waits on: connect and write, no more.
 const FIRE_AND_FORGET_BUDGET: Duration = Duration::from_secs(2);
 /// How long a permission prompt may stay on screen before the terminal takes over.
-const DECISION_BUDGET: Duration = Duration::from_secs(110);
+const DECISION_BUDGET: Duration = Duration::from_secs(30);
 
 /// `ERROR_PIPE_BUSY` — every instance is serving someone else right now. This is
 /// the one error worth retrying: the server exists and a slot will free up.
@@ -91,7 +91,13 @@ fn main() {
             let mut out = std::io::stdout();
             let _ = writeln!(out, "{json}");
             let _ = out.flush();
+            std::process::exit(0);
         }
+    }
+    if is_antigravity && waits_for_answer {
+        let mut out = std::io::stdout();
+        let _ = writeln!(out, r#"{{"decision":"ask"}}"#);
+        let _ = out.flush();
     }
     // Nothing printed: asks in the terminal, as if we were not here.
     std::process::exit(0);

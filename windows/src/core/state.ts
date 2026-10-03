@@ -111,7 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autostart: false,
   hooksInstalled: false,
   model: "claude-opus-5",
-  geminiModel: "gemini-3.0-flash",
+  geminiModel: "gemini-2.5-flash",
   chatProvider: "gemini",
 };
 

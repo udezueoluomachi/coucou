@@ -365,6 +365,11 @@ fn chat_reset(claude_chat: State<'_, ClaudeChat>, gemini_chat: State<'_, GeminiC
     gemini_chat.reset();
 }
 
+#[tauri::command]
+async fn gemini_list_models() -> Result<Vec<gemini::GeminiModelInfo>, String> {
+    gemini::list_models().await
+}
+
 /// Copies a dropped file into the inbox and reports its name back.
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
@@ -512,6 +517,7 @@ pub fn run() {
             log_line,
             chat_send,
             chat_reset,
+            gemini_list_models,
             ingest_file,
             secret_present,
             secret_set,

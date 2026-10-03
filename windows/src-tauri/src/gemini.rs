@@ -15,7 +15,7 @@ const BASE_ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/mo
 const MAX_INLINE_TEXT: u64 = 200_000;
 
 #[allow(dead_code)]
-pub const DEFAULT_MODEL: &str = "gemini-3.0-flash";
+pub const DEFAULT_MODEL: &str = "gemini-2.5-flash";
 
 const SYSTEM_PROMPT: &str = "You are Mochi, a personal AI assistant living at the top of the user's screen. \
 You have Google Search grounding and can help with research, coding, recommendations, tasks, and questions. \
@@ -225,4 +225,65 @@ fn file_part(path: &str) -> Option<Value> {
     }
     let text = std::fs::read_to_string(path).ok()?;
     Some(json!({ "text": format!("File contents:\n{text}") }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiModelInfo {
+    pub id: String,
+    pub label: String,
+}
+
+pub async fn list_models() -> Result<Vec<GeminiModelInfo>, String> {
+    let key = secrets::get("gemini-api-key")
+        .ok_or_else(|| "No gemini-api-key found in Credential Manager".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(format!("{BASE_ENDPOINT}?key={key}"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("API error {status}: {body}"));
+    }
+
+    let val = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("JSON parse error: {e}"))?;
+
+    let mut result = Vec::new();
+    if let Some(models) = val.get("models").and_then(Value::as_array) {
+        for m in models {
+            let supported = m.get("supportedGenerationMethods")
+                .and_then(Value::as_array)
+                .map(|methods| methods.iter().any(|method| method.as_str() == Some("generateContent")))
+                .unwrap_or(false);
+
+            if supported {
+                if let Some(raw_name) = m.get("name").and_then(Value::as_str) {
+                    let id = raw_name.strip_prefix("models/").unwrap_or(raw_name).to_string();
+                    if id.contains("embedding") || id.contains("aqa") || id.contains("imagen") {
+                        continue;
+                    }
+                    let label = m.get("displayName")
+                        .and_then(Value::as_str)
+                        .map(|d| format!("{d} ({id})"))
+                        .unwrap_or_else(|| id.clone());
+                    result.push(GeminiModelInfo { id, label });
+                }
+            }
+        }
+    }
+
+    result.sort_by(|a, b| b.id.cmp(&a.id));
+    Ok(result)
 }
